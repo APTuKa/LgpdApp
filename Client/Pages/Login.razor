@@ -1,0 +1,82 @@
+﻿@page "/login"
+@using System.ComponentModel.DataAnnotations
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject Blazored.LocalStorage.ILocalStorageService localStorage
+
+<h3 class="text-2xl mb-4">Вход</h3>
+
+<EditForm Model="@loginModel" OnValidSubmit="@HandleLogin">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="mb-3">
+        <label>Email</label>
+        <InputText class="form-control" @bind-Value="loginModel.Email" />
+    </div>
+    <div class="mb-3">
+        <label>Пароль</label>
+        <InputText type="password" class="form-control" @bind-Value="loginModel.Password" />
+    </div>
+    <button class="btn btn-primary" type="submit">Войти</button>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="text-danger mt-2">@errorMessage</div>
+    }
+</EditForm>
+
+@code {
+    private LoginModel loginModel = new LoginModel();
+    private string errorMessage = "";
+
+    private async Task HandleLogin()
+    {
+        errorMessage = "";
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync("/api/auth/login", loginModel);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
+
+                // Сохраняем токен в localStorage
+                await localStorage.SetItemAsync("authToken", result.Token);
+
+                // Перенаправляем после успешного входа
+                Navigation.NavigateTo("/");
+            }
+            else
+            {
+                var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+                errorMessage = error?.Message ?? "Ошибка входа.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    public class LoginModel
+    {
+        [Required(ErrorMessage = "Email обязателен.")]
+        public string Email { get; set; }
+
+        [Required(ErrorMessage = "Пароль обязателен.")]
+        public string Password { get; set; }
+    } 
+
+    public class LoginResponse
+    {
+        public string Token { get; set; }
+    }
+
+    public class ErrorResponse
+    {
+        public string Message { get; set; }
+    }
+}
+
