@@ -1,49 +1,29 @@
 ﻿@page "/templates"
+@using LgpdApp.Client.Shared.DTOs
 @inject HttpClient Http
-@inject NavigationManager Navigation
 
-<h3 class="text-2xl mb-4">Шаблоны игр</h3>
+<h3>Выберите шаблон</h3>
 
-@if (templates == null)
-{
-    <p>Загрузка шаблонов...</p>
-}
-else
-{
-    <div class="row">
-        @foreach (var template in templates)
-        {
-            <div class="col-md-4 mb-4">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">@template.Name</h5>
-                        <p class="card-text">@template.Description</p>
-                        <button class="btn btn-primary" @onclick="() => NavigateToCreate(template.Id)">Создать игру</button>
-                    </div>
+<div class="row">
+    @foreach (var template in templates)
+    {
+        <div class="col-md-4 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">@template.Name</h5>
+                    <p class="card-text">@template.Description</p>
+                    <a href="/create-game/@template.Id" class="btn btn-primary">Создать игру</a>
                 </div>
             </div>
-        }
-    </div>
-}
+        </div>
+    }
+</div>
 
 @code {
-    private List<TemplateDto> templates;
+    private List<TemplateDto> templates = new();
 
     protected override async Task OnInitializedAsync()
     {
-        templates = await Http.GetFromJsonAsync<List<TemplateDto>>("/api/templates");
-    }
-
-    private void NavigateToCreate(Guid templateId)
-    {
-        Navigation.NavigateTo($"/create-game/{templateId}");
-    }
-
-    public class TemplateDto
-    {
-        public Guid Id { get; set; }
-        public string Name { get; set; }
-        public string Description { get; set; }
+        templates = await Http.GetFromJsonAsync<List<TemplateDto>>("api/templates");
     }
 }
-

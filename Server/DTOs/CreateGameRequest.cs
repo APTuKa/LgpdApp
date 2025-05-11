@@ -1,6 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
+
 namespace LgpdApp.Server.DTOs
 {
     public class CreateGameRequest
@@ -8,10 +7,10 @@ namespace LgpdApp.Server.DTOs
         [Required(ErrorMessage = "Название игры обязательно.")]
         public string Name { get; set; }
 
-        [Required(ErrorMessage = "Шаблон обязателен.")]
+        [Required(ErrorMessage = "ID шаблона обязателен.")]
         public Guid TemplateId { get; set; }
 
-        [Required(ErrorMessage = "Параметры обязательны.")]
+        [Required(ErrorMessage = "Параметры игры обязательны.")]
         public Dictionary<string, string> Parameters { get; set; }
     }
 }

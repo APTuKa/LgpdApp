@@ -1,11 +1,16 @@
 ﻿@page "/create-game/{TemplateId:guid}"
+@using LgpdApp.Client.Shared.DTOs
+@using System.Text.Json
 @inject HttpClient Http
 @inject NavigationManager Navigation
-@inject Blazored.LocalStorage.ILocalStorageService localStorage
-@using System.ComponentModel.DataAnnotations
+@inject ILocalStorageService LocalStorage
 @using System.Text.Json
+@using Microsoft.AspNetCore.Components.Authorization
+@using Blazored.LocalStorage
+@using System.Security.Claims
+@using System.ComponentModel.DataAnnotations
 
-<h3 class="text-2xl mb-4">Создание игры</h3>
+<h3>Создание игры</h3>
 
 @if (template == null)
 {
@@ -13,16 +18,16 @@
 }
 else
 {
-    <EditForm Model="@gameModel" OnValidSubmit="@HandleCreate">
+    <EditForm Model="gameModel" OnValidSubmit="SubmitGame">
         <DataAnnotationsValidator />
         <ValidationSummary />
 
         <div class="mb-3">
             <label>Название игры</label>
-            <InputText class="form-control" @bind-Value="gameModel.Name" />
+            <InputText @bind-Value="gameModel.Name" class="form-control" />
+            <ValidationMessage For="@(() => gameModel.Name)" />
         </div>
 
-        <h5>Параметры шаблона:</h5>
         @foreach (var param in template.Parameters)
         {
             <div class="mb-3">
@@ -30,221 +35,187 @@ else
 
                 @if (param.Type == "enum")
                 {
-                    <InputSelect class="form-control" @bind-Value="gameModel.Parameters[param.Name]">
+                    <InputSelect @bind-Value="gameModel.Parameters[param.Name]" class="form-select">
                         @foreach (var option in param.Options)
                         {
                             <option value="@option">@option</option>
                         }
                     </InputSelect>
                 }
-                else if (param.Type == "image" || param.Type == "imageOrColor")
+
+                else if (param.Type == "int")
                 {
-                    <InputText class="form-control" placeholder="ImageId или Hex" @bind-Value="gameModel.Parameters[param.Name]" />
+                    <InputNumber @bind-Value="gameModel.Parameters[param.Name]" class="form-control" />
                 }
-               else if (param.Type == "list")
-{
 
-    <div class="border p-3 mb-3">
-        <h5>Редактор карточек/пар</h5>
+                else if (param.Type == "string")
+                {
+                    <InputText @bind-Value="gameModel.Parameters[param.Name]" class="form-control" />
+                }
 
-        @foreach (var item in gameModel.CardPairs)
-        {
-            <div class="card mb-2 p-2">
-                <div class="row">
-                    <div class="col-md-5">
-                        <label>Левая часть (текст или ImageId)</label>
-                        <InputText class="form-control" @bind-Value="item.LeftContent" />
-                        <select class="form-select mt-1" @bind="item.LeftType">
-                            <option value="text">Текст</option>
-                            <option value="image">Картинка (ImageId)</option>
+                else if (param.Type == "bool")
+                {
+                   <InputCheckbox @bind-Checked="@gameModel.Parameters[param.Name]" />
+                }
+
+                else if (param.Type == "imageOrColor")
+                {
+                    <div class="d-flex gap-2 align-items-center">
+                        <select class="form-select" @bind="gameModel.Parameters[param.Name]">
+                            <option value="">-- Выберите изображение --</option>
+                            @foreach (var image in images)
+                            {
+                                <option value="@image.Id.ToString()">@image.Path</option>
+                            }
                         </select>
+                        <input type="color" @bind="gameModel.Parameters[param.Name]" />
                     </div>
+                }
 
-                   <div class="col-md-5">
-    <label>Левая часть (текст или картинка)</label>
-
-    @if (item.LeftType == "text")
-    {
-        <InputText class="form-control mb-2" placeholder="Введите текст" @bind-Value="item.LeftContent" />
-    }
-    else if (item.LeftType == "image")
-    {
-        <select class="form-select mb-2" @bind="item.LeftContent">
-            <option value="">Выберите изображение</option>
-            @foreach (var img in availableImages)
-            {
-                <option value="@img.Id">@img.Path</option>
-            }
-        </select>
-
-        @if (!string.IsNullOrEmpty(item.LeftContent))
-        {
-            var selectedImage = availableImages.FirstOrDefault(i => i.Id.ToString() == item.LeftContent);
-            if (selectedImage != null)
-            {
-                <img src="@selectedImage.Path" alt="Превью" style="max-width: 100px;" />
-            }
-        }
-    }
-
-    <select class="form-select mt-1" @bind="item.LeftType">
-        <option value="text">Текст</option>
-        <option value="image">Картинка</option>
-    </select>
-</div>
-
-
-
-                    <div class="col-md-2 d-flex align-items-center">
-                        <div class="form-check">
-                            <InputCheckbox class="form-check-input" @bind-Value="item.IsCorrect" />
-                            <label class="form-check-label">Правильный</label>
+                else if (param.Type == "list")
+                {
+                    <button type="button" class="btn btn-sm btn-secondary mb-2" @onclick="AddPair">+ Добавить пару</button>
+                    @for (int i = 0; i < cardPairs.Count; i++)
+                    {
+                        <div class="row mt-2">
+                            <div class="col">
+                                <input class="form-control" placeholder="Левая часть" @bind-value="cardPairs[i].Left" />
+                            </div>
+                            <div class="col">
+                                <input class="form-control" placeholder="Правая часть" @bind-value="cardPairs[i].Right" />
+                            </div>
                         </div>
-                        <button class="btn btn-danger btn-sm ms-2" @onclick="() => RemoveCardPair(item)">Удалить</button>
-                    </div>
-                </div>
-            </div>
-        }
+                    }
+                }
 
-        <button class="btn btn-secondary mt-2" @onclick="AddCardPair">Добавить карточку/пару</button>
-    </div>
-}
+                else if (param.Type == "object")
+                {
+                    <div class="mb-3">
+                        <input type="text" class="form-control" placeholder="Тип (text/image)" @bind-value="centerType" />
+                        <input type="text" class="form-control mt-1" placeholder="Содержимое" @bind-value="centerContent" />
+                    </div>
+                }
+
                 else
                 {
-                    <InputText class="form-control" @bind-Value="gameModel.Parameters[param.Name]" />
+                    <InputText @bind-Value="gameModel.Parameters[param.Name]" class="form-control" />
                 }
             </div>
         }
 
-        <button class="btn btn-success" type="submit">Создать игру</button>
+        <button type="submit" class="btn btn-success">Сохранить игру</button>
     </EditForm>
 }
 
 @code {
+@inject AuthenticationStateProvider AuthenticationStateProvider
+private Task<AuthenticationState> authenticationStateTask;
+
+protected override void OnInitialized()
+{
+    authenticationStateTask = AuthenticationStateProvider.GetAuthenticationStateAsync();
+}
     [Parameter] public Guid TemplateId { get; set; }
 
     private TemplateDto template;
-    private CreateGameModel gameModel = new CreateGameModel();
+    private CreateGameModel gameModel = new();
+    private List<CardPair> cardPairs = new();
+    private List<ImageDto> images = new();
 
-    public class CreateGameModel
-{
-    [Required]
-    public string Name { get; set; }
-    public Dictionary<string, string> Parameters { get; set; } = new();
-    public List<CardPairModel> CardPairs { get; set; } = new();
-}
-
-public class CardPairModel
-{
-    public string LeftType { get; set; } = "text";      // text или image
-    public string LeftContent { get; set; }
-    public string RightType { get; set; } = "text";     // text или image
-    public string RightContent { get; set; }
-    public bool IsCorrect { get; set; }                 // чекбокс (если нужно)
-}
-
-private void AddCardPair()
-{
-    gameModel.CardPairs.Add(new CardPairModel());
-}
-
-private void RemoveCardPair(CardPairModel item)
-{
-    gameModel.CardPairs.Remove(item);
-}
+    private string centerType = "text";
+    private string centerContent = "";
 
 
     protected override async Task OnInitializedAsync()
     {
-        // Загружаем шаблон
-        template = await Http.GetFromJsonAsync<TemplateDto>($"/api/templates/{TemplateId}");
+        // Загружаем шаблон по ID
+        template = await Http.GetFromJsonAsync<TemplateDto>($"api/templates/{TemplateId}");
+        gameModel.Parameters = new Dictionary<string, string>();
 
-        // Загружаем изображения
-        var token = await localStorage.GetItemAsync<string>("authToken");
-        Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        foreach (var p in template.Parameters)
+        {
+            gameModel.Parameters[p.Name] = p.Options?.FirstOrDefault() ?? "";
+        }
 
-        availableImages = await Http.GetFromJsonAsync<List<ImageDto>>("/api/images");
-
+        // Загружаем изображения для выбора
+        images = await Http.GetFromJsonAsync<List<ImageDto>>("api/images");
     }
 
-    private async Task HandleCreate()
+    private void AddPair()
     {
-        foreach (var card in gameModel.CardPairs)
-{
-    if (card.LeftType == "text" && string.IsNullOrWhiteSpace(card.LeftContent))
-    {
-        Console.WriteLine("Ошибка: левая часть карточки (текст) пуста");
-    }
-    if (card.LeftType == "image" && string.IsNullOrWhiteSpace(card.LeftContent))
-    {
-        Console.WriteLine("Ошибка: левая часть карточки (картинка) не выбрана");
+        cardPairs.Add(new CardPair());
     }
 
-    if (card.LeftType == "text" && string.IsNullOrWhiteSpace(card.RightContent))
+    private async Task SubmitGame()
     {
-        Console.WriteLine("Ошибка: правая часть карточки (текст) пуста");
-    }
-    if (card.LeftType == "image" && string.IsNullOrWhiteSpace(card.RightContent))
-    {
-        Console.WriteLine("Ошибка: правая часть карточки (картинка) не выбрана");
-    }
+        // Обработка списка карточек
+        if (cardPairs.Count > 0)
+        {
+            var pairsJson = JsonSerializer.Serialize(cardPairs.Select(p => new Dictionary<string, object>
+            {
+                { "type", "pair" },
+                { "left", p.Left },
+                { "right", p.Right }
+            }));
+            gameModel.Parameters["Карточки/Пары"] = pairsJson;
+        }
 
+        // Обработка объекта
+        if (!string.IsNullOrEmpty(centerType) && !string.IsNullOrEmpty(centerContent))
+        {
+            var centerJson = JsonSerializer.Serialize(new Dictionary<string, string>
+            {
+                { "type", centerType },
+                { "content", centerContent }
+            });
+            gameModel.Parameters["Центральный объект"] = centerJson;
+        }
 
-    // Аналогично проверка для Right части
-}
-
-
-        //var token = await localStorage.GetItemAsync<string>("authToken");
-        //Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-
-
-        if (gameModel.CardPairs.Any())
-{
-    gameModel.Parameters["Карточки/Пары"] = JsonSerializer.Serialize(gameModel.CardPairs);
-}
-
-        var request = new
+        // Формируем запрос
+        var request = new CreateGameRequest
         {
             Name = gameModel.Name,
             TemplateId = TemplateId,
             Parameters = gameModel.Parameters
         };
 
-        var response = await Http.PostAsJsonAsync("/api/games", request);
+        // Получаем токен
+        var token = await LocalStorage.GetItemAsStringAsync("authToken");
+        var authState = await authenticationStateTask;
+        var user = authState.User;
 
-        if (response.IsSuccessStatusCode)
+        var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim == null || string.IsNullOrEmpty(userIdClaim.Value))
         {
-            Navigation.NavigateTo("/games");  // перенаправление на список игр
+            Console.WriteLine("Ошибка: пользователь не авторизован.");
+            return;
+        }
+
+        var createdByGuid = Guid.Parse(userIdClaim.Value);
+
+        var result = await Http.PostAsJsonAsync("api/games", request);
+        if (result.IsSuccessStatusCode)
+        {
+            Navigation.NavigateTo("/games");
         }
         else
         {
-            var error = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"Ошибка: {error}");
+            var problem = await result.Content.ReadFromJsonAsync<ProblemDetails>();
+            Console.WriteLine(problem.Detail);
         }
     }
 
-    public class TemplateDto
+    private class CardPair
     {
-        public Guid Id { get; set; }
-        public string Name { get; set; }
-        public string Description { get; set; }
-        public List<TemplateParam> Parameters { get; set; }
+        public string Left { get; set; }
+        public string Right { get; set; }
     }
 
-    public class TemplateParam
+    public class CreateGameModel
     {
-        public string Name { get; set; }
-        public string Type { get; set; }
-        public List<string> Options { get; set; }
+        [Required(ErrorMessage = "Название игры обязательно.")]
+        public string Name { get; set; } = "";
+
+        public Dictionary<string, string> Parameters { get; set; } = new();
     }
-
-
-    private List<ImageDto> availableImages = new();
-
-    public class ImageDto
-    {
-        public Guid Id { get; set; }
-        public string Path { get; set; }
-    }
-    
 }

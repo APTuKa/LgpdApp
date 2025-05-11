@@ -1,48 +1,21 @@
 ﻿@page "/game/{Id:guid}"
+@using LgpdApp.Client.Shared.DTOs
 @using System.Text.Json
 @inject HttpClient Http
-@inject Blazored.LocalStorage.ILocalStorageService localStorage
 
 <h3>Детали игры</h3>
 
-@if (game == null)
-{
-    <p>Загрузка...</p>
-}
-else
-{
-    <div>
-        <p><strong>Название:</strong> @game.Name</p>
-        <p><strong>Шаблон:</strong> @game.Template?.Name</p>
-        <p><strong>Параметры:</strong></p>
-        <pre>@formattedParams</pre>
-    </div>
-}
+<pre>@paramsJson</pre>
 
 @code {
     [Parameter] public Guid Id { get; set; }
     private GameDto game;
-    private string formattedParams = "";
+
+    private string paramsJson = "";
 
     protected override async Task OnInitializedAsync()
     {
-        var token = await localStorage.GetItemAsync<string>("authToken");
-        Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-
-        game = await Http.GetFromJsonAsync<GameDto>($"/api/games/{Id}");
-        formattedParams = JsonSerializer.Serialize(JsonDocument.Parse(game.ParamsJson), new JsonSerializerOptions { WriteIndented = true });
-    }
-
-    public class GameDto
-    {
-        public Guid Id { get; set; }
-        public string Name { get; set; }
-        public TemplateDto Template { get; set; }
-        public string ParamsJson { get; set; }
-    }
-
-    public class TemplateDto
-    {
-        public string Name { get; set; }
+        game = await Http.GetFromJsonAsync<GameDto>($"api/games/{Id}");
+        paramsJson = JsonSerializer.Serialize(game.ParamsJson, new JsonSerializerOptions { WriteIndented = true });
     }
 }

@@ -2,11 +2,11 @@
 using LgpdApp.Server.DTOs;
 using LgpdApp.Server.Models;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
+using Newtonsoft.Json;
 
 namespace LgpdApp.Server.Services
 {
-    public class GamesService
+    public class GamesService : IGamesService
     {
         private readonly ApplicationDbContext _context;
 
@@ -17,90 +17,47 @@ namespace LgpdApp.Server.Services
 
         public async Task<Game> CreateGameAsync(CreateGameRequest request, Guid createdBy)
         {
-            // Проверка обязательных параметров
-            if (!request.Parameters.ContainsKey("Режим игры"))
-                throw new Exception("Параметр 'Режим игры' обязателен.");
-
-            if (!request.Parameters.ContainsKey("Размер поля"))
-                throw new Exception("Параметр 'Размер поля' обязателен.");
-
             var processedParams = new Dictionary<string, object>();
 
             foreach (var param in request.Parameters)
             {
-                // Обработка фонов (поля и карточки)
                 if (param.Key == "Фон поля" || param.Key == "Фон карточки")
                 {
                     var value = param.Value;
-
                     if (Guid.TryParse(value, out var imageId))
                     {
                         var image = await _context.Images.FirstOrDefaultAsync(i => i.Id == imageId);
-                        if (image != null)
-                            processedParams[param.Key] = image.Path;
-                        else
-                            processedParams[param.Key] = "Изображение не найдено";
+                        if (image != null) processedParams[param.Key] = image.Path;
                     }
-                    else if (value.StartsWith("#"))  // цветовая палитра
+                    else if (value.StartsWith("#"))
                     {
                         processedParams[param.Key] = value;
                     }
-                    else
-                    {
-                        processedParams[param.Key] = "Неверный формат (ImageId или Hex)";
-                    }
                 }
-                // Обработка списка карточек/пар
-                else if (param.Key == "Карточки/Пары")
+                else if (param.Key == "Карточки/Пары" || param.Key == "Варианты ответов" || param.Key == "Пузыри")
                 {
                     try
                     {
-                        var rawList = JsonSerializer.Deserialize<List<Dictionary<string, string>>>(param.Value);
-                        if (rawList == null || rawList.Count == 0)
-                            throw new Exception("Список карточек/пар пустой или некорректный.");
-
-                        // Проверка для режима Мемори: карточек должно быть парное число
-                        if (request.Parameters["Режим игры"] == "Memori")
-                        {
-                            if (rawList.Count % 2 != 0)
-                                throw new Exception("В режиме 'Мемори' количество карточек должно быть парным.");
-                        }
-
-                        var processedList = new List<Dictionary<string, string>>();
-
-                        foreach (var item in rawList)
-                        {
-                            var processedItem = new Dictionary<string, string>();
-
-                            foreach (var kv in item)
-                            {
-                                // Проверка для полей left/right/content: если это ImageId → заменяем на путь
-                                if ((kv.Key == "left" || kv.Key == "right" || kv.Key == "content")
-                                    && Guid.TryParse(kv.Value, out var imgId))
-                                {
-                                    var image = await _context.Images.FirstOrDefaultAsync(i => i.Id == imgId);
-                                    if (image != null)
-                                        processedItem[kv.Key] = image.Path;
-                                    else
-                                        processedItem[kv.Key] = "Изображение не найдено";
-                                }
-                                else
-                                {
-                                    processedItem[kv.Key] = kv.Value;  // обычный текст или флаг isPair/type
-                                }
-                            }
-
-                            processedList.Add(processedItem);
-                        }
-
-                        processedParams[param.Key] = processedList;
+                        var list = JsonConvert.DeserializeObject<List<Dictionary<string, object>>>(param.Value);
+                        processedParams[param.Key] = list;
                     }
                     catch
                     {
-                        throw new Exception("Ошибка при обработке карточек/пар. Проверьте формат.");
+                        throw new ArgumentException($"Ошибка при разборе списка '{param.Key}'.");
                     }
                 }
-                // Обработка стандартных параметров (например, Режим игры, Размер поля)
+                else if (param.Key == "Центральный объект")
+                {
+                    try
+                    {
+                        var obj = JsonConvert.DeserializeObject<Dictionary<string, object>>(param.Value);
+                        processedParams[param.Key] = obj;
+                    }
+                    catch
+                    {
+                        throw new ArgumentException($"Ошибка при разборе объекта '{param.Key}'.");
+                    }
+                }
                 else
                 {
                     processedParams[param.Key] = param.Value;
@@ -113,7 +70,7 @@ namespace LgpdApp.Server.Services
                 Name = request.Name,
                 TemplateId = request.TemplateId,
                 CreatedBy = createdBy,
-                ParamsJson = JsonSerializer.Serialize(processedParams),
+                ParamsJson = JsonConvert.SerializeObject(processedParams),
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -130,8 +87,19 @@ namespace LgpdApp.Server.Services
 
         public async Task<Game> GetGameByIdAsync(Guid id)
         {
-            return await _context.Games.Include(g => g.Template)
-                                       .FirstOrDefaultAsync(g => g.Id == id);
+            return await _context.Games
+                .Include(g => g.Template)
+                .FirstOrDefaultAsync(g => g.Id == id);
+        }
+
+        public async Task<bool> DeleteGameAsync(Guid id)
+        {
+            var game = await _context.Games.FindAsync(id);
+            if (game == null) return false;
+
+            _context.Games.Remove(game);
+            await _context.SaveChangesAsync();
+            return true;
         }
     }
 }

@@ -1,78 +1,132 @@
-﻿using LgpdApp.Server.DTOs;
-using LgpdApp.Server.Models;
-using LgpdApp.Server.Services;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using LgpdApp.Server.DTOs;
+using LgpdApp.Server.Models;
+using LgpdApp.Server.Services;
+using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
+using LgpdApp.Server.Data;
 
 namespace LgpdApp.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize]
+    [Authorize] // Все методы защищены авторизацией
     public class GamesController : ControllerBase
     {
         private readonly GamesService _gamesService;
+        private readonly ApplicationDbContext _context;
 
-        public GamesController(GamesService gamesService)
+        public GamesController(GamesService gamesService, ApplicationDbContext context)
         {
             _gamesService = gamesService;
+            _context = context;
         }
 
+        /// <summary>
+        /// Создание новой игры
+        /// </summary>
         [HttpPost]
-       // [Authorize(Roles = "Admin,Logoped")]
-        public async Task<IActionResult> CreateGame(CreateGameRequest request)
+        [Authorize(Roles = "Logoped,Admin")] // Только логопед или админ могут создавать
+        public async Task<IActionResult> CreateGame([FromBody] CreateGameRequest request)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
             try
             {
-                var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-                var game = await _gamesService.CreateGameAsync(request, userId);
+                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (string.IsNullOrEmpty(userId))
+                    return Unauthorized(new { message = "Пользователь не авторизован." });
 
-                return Ok(new
-                {
-                    game.Id,
-                    game.Name,
-                    TemplateName = game.Template?.Name,
-                    CreatedAt = game.CreatedAt
-                });
+                var game = await _gamesService.CreateGameAsync(request, Guid.Parse(userId));
+                return Ok(game);
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(new ProblemDetails
+                {
+                    Title = "Ошибка при создании игры",
+                    Detail = ex.Message,
+                    Instance = HttpContext.Request.Path
+                });
             }
         }
 
+        /// <summary>
+        /// Получить все игры
+        /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetGames()
+        public async Task<IActionResult> GetAllGames()
         {
-            var games = await _gamesService.GetAllGamesAsync();
-            return Ok(games.Select(g => new
+            try
             {
-                g.Id,
-                g.Name,
-                TemplateName = g.Template?.Name,
-                CreatedAt = g.CreatedAt
-            }));
+                var games = await _gamesService.GetAllGamesAsync();
+                return Ok(games);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ProblemDetails
+                {
+                    Title = "Внутренняя ошибка сервера",
+                    Detail = ex.Message
+                });
+            }
         }
 
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetGame(Guid id)
+        /// <summary>
+        /// Получить игру по ID
+        /// </summary>
+        [HttpGet("{id:guid}")]
+        public async Task<IActionResult> GetGameById(Guid id)
         {
-            var game = await _gamesService.GetGameByIdAsync(id);
-            if (game == null)
-                return NotFound();
-
-            return Ok(new
+            try
             {
-                game.Id,
-                game.Name,
-                TemplateName = game.Template?.Name,
-                Params = game.ParamsJson,
-                CreatedAt = game.CreatedAt
-            });
+                var game = await _gamesService.GetGameByIdAsync(id);
+                if (game == null)
+                    return NotFound(new ProblemDetails
+                    {
+                        Title = "Игра не найдена",
+                        Detail = $"Игра с ID {id} отсутствует."
+                    });
+
+                return Ok(game);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ProblemDetails
+                {
+                    Title = "Внутренняя ошибка сервера",
+                    Detail = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Удалить игру
+        /// </summary>
+        [HttpDelete("{id:guid}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteGame(Guid id)
+        {
+            try
+            {
+                var success = await _gamesService.DeleteGameAsync(id);
+                if (!success)
+                    return NotFound(new ProblemDetails
+                    {
+                        Title = "Игра не найдена",
+                        Detail = $"Игра с ID {id} отсутствует."
+                    });
+
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ProblemDetails
+                {
+                    Title = "Ошибка удаления игры",
+                    Detail = ex.Message
+                });
+            }
         }
     }
 }
